@@ -1,0 +1,6 @@
+{
+  "name": "FrameSlice",
+  "description": "High-precision video frame extractor. Slice and export high-quality images from any video file with custom frame-based intervals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
