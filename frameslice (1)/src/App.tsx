@@ -19,6 +19,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import JSZip from 'jszip';
+import { auth, db, signInWithGoogle } from './lib/firebase';
+import { onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, orderBy, writeBatch, doc } from 'firebase/firestore';
+import { v4 as uuidv4 } from 'uuid';
 
 interface CapturedFrame {
   id: string;
@@ -28,6 +32,7 @@ interface CapturedFrame {
 }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -35,8 +40,65 @@ export default function App() {
   const [capturedFrames, setCapturedFrames] = useState<CapturedFrame[]>([]);
   const [fps, setFps] = useState(30);
   const [activeTab, setActiveTab] = useState<'monitor' | 'history'>('monitor');
+  const [projects, setProjects] = useState<any[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   
-  // Settings
+  // Auth listener
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+  }, []);
+
+  // Fetch projects
+  useEffect(() => {
+    if (!user) {
+      setProjects([]);
+      return;
+    }
+    const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setProjects(pList);
+    });
+  }, [user]);
+
+  const saveProjectToFirestore = async (name: string) => {
+    if (!user) return;
+    const projectData = {
+      id: uuidv4(),
+      name: name,
+      createdAt: serverTimestamp(),
+      ownerId: user.uid,
+      videoName: videoFile?.name || 'Untitled',
+      videoSize: videoFile?.size || 0,
+      frameCount: capturedFrames.length
+    };
+    const docRef = await addDoc(collection(db, 'projects'), projectData);
+    
+    // Batch write frames
+    const batch = writeBatch(db);
+    capturedFrames.forEach((frame) => {
+      const frameDocRef = doc(collection(db, `projects/${docRef.id}/frames`));
+      batch.set(frameDocRef, {
+        ...frame,
+        projectId: docRef.id,
+        createdAt: serverTimestamp(),
+        ownerId: user.uid
+      });
+    });
+    await batch.commit();
+    setActiveProjectId(docRef.id);
+  };
+
+  const loadProject = async (proj: any) => {
+    setActiveProjectId(proj.id);
+    const framesQ = query(collection(db, `projects/${proj.id}/frames`), orderBy('frameIndex', 'asc'));
+    const framesSnap = await getDocs(framesQ);
+    const frames = framesSnap.docs.map(d => d.data() as CapturedFrame);
+    setCapturedFrames(frames);
+    setActiveTab('history');
+  };
   const [config, setConfig] = useState({
     imagesPerBlock: 1,
     frameBlockSize: 30,
@@ -137,6 +199,37 @@ export default function App() {
 
     setCapturedFrames(newFrames);
     setIsProcessing(false);
+    
+    // Save to Firestore automatically if user is signed in
+    if (user) {
+      const projectName = `Vault ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
+      // Note: We use newFrames directly here as setCapturedFrames is async
+      const saveToDb = async () => {
+        const projectData = {
+          id: uuidv4(),
+          name: projectName,
+          createdAt: serverTimestamp(),
+          ownerId: user.uid,
+          videoName: videoFile?.name || 'Untitled',
+          videoSize: videoFile?.size || 0,
+          frameCount: newFrames.length
+        };
+        const docRef = await addDoc(collection(db, 'projects'), projectData);
+        const batch = writeBatch(db);
+        newFrames.forEach((frame) => {
+          const frameDocRef = doc(collection(db, `projects/${docRef.id}/frames`));
+          batch.set(frameDocRef, {
+            ...frame,
+            projectId: docRef.id,
+            createdAt: serverTimestamp(),
+            ownerId: user.uid
+          });
+        });
+        await batch.commit();
+        setActiveProjectId(docRef.id);
+      };
+      saveToDb();
+    }
   };
 
   const downloadAll = async () => {
@@ -165,15 +258,56 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-[#0a0a0a] text-zinc-300 font-sans flex overflow-hidden selection:bg-amber-200 selection:text-black">
       {/* Left Sidebar: Configuration */}
-      <aside className="w-80 border-r border-zinc-800 flex flex-col p-8 bg-[#0d0d0d] shrink-0">
-        <div className="mb-10">
-          <h1 className="text-2xl font-serif italic text-amber-200 tracking-wide">Vignette</h1>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mt-1">Precision Slice Engine</p>
+      <aside className="w-80 border-r border-zinc-800 flex flex-col bg-[#0d0d0d] shrink-0">
+        <div className="p-8 pb-0">
+          <div className="mb-8 flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-serif italic text-amber-200 tracking-wide">Vignette</h1>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mt-1">Precision Slice Engine</p>
+            </div>
+            {user ? (
+              <button 
+                onClick={() => signOut(auth)}
+                className="text-zinc-600 hover:text-amber-200 transition-colors"
+                title="Sign Out"
+              >
+                <LogOut size={16} />
+              </button>
+            ) : (
+              <button 
+                onClick={signInWithGoogle}
+                className="text-[9px] font-bold uppercase tracking-widest text-amber-200 border border-amber-900/50 px-2 py-1 rounded hover:bg-amber-900/20"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
         </div>
 
-        <nav className="flex-1 space-y-10 overflow-y-auto no-scrollbar">
+        <nav className="flex-1 overflow-y-auto no-scrollbar p-8 pt-0 space-y-10">
+          {user && projects.length > 0 && (
+            <section>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <FolderOpen size={12} /> Recent Vaults
+              </h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto no-scrollbar">
+                {projects.map(p => (
+                  <button 
+                    key={p.id}
+                    onClick={() => loadProject(p)}
+                    className={`w-full text-left p-2 rounded border transition-colors ${activeProjectId === p.id ? 'bg-amber-900/10 border-amber-900/40' : 'bg-zinc-900/30 border-zinc-800 hover:border-zinc-700'}`}
+                  >
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-300 truncate">{p.name}</div>
+                    <div className="text-[8px] text-zinc-600 mt-1 uppercase font-mono">{p.frameCount} Frames</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Video Info Section */}
           <section>
+... [truncated for brevty - matching existing section] ...
             <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest mb-4">Active Media</h3>
             {!videoUrl ? (
               <label className="flex flex-col items-center justify-center w-full h-32 border border-dashed border-zinc-800 rounded-lg hover:border-amber-200/50 cursor-pointer transition-colors bg-zinc-900/30 group">

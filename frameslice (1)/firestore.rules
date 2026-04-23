@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    function isOwner(data) {
+      return isSignedIn() && data.ownerId == request.auth.uid;
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+
+    // Projects
+    match /projects/{projectId} {
+      function isValidProject(data) {
+        return data.keys().hasAll(['id', 'name', 'createdAt', 'ownerId', 'videoName', 'videoSize', 'frameCount']) &&
+               data.keys().size() == 7 &&
+               data.id == projectId &&
+               data.id is string && data.id.size() <= 128 &&
+               data.name is string && data.name.size() <= 100 &&
+               data.videoName is string && data.videoName.size() <= 255 &&
+               data.videoSize is number &&
+               data.frameCount is number &&
+               data.ownerId == request.auth.uid &&
+               data.createdAt == request.time;
+      }
+
+      allow get: if isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming());
+      
+      allow update: if isSignedIn() && isOwner(existing()) &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'frameCount']) &&
+                         incoming().name is string && incoming().name.size() <= 100 &&
+                         incoming().frameCount is number
+                       );
+      
+      allow delete: if isOwner(existing());
+
+      // Frames (Subcollection)
+      match /frames/{frameId} {
+        function isValidFrame(data) {
+          return data.keys().hasAll(['id', 'projectId', 'frameIndex', 'timestamp', 'dataUrl', 'createdAt', 'ownerId']) &&
+                 data.keys().size() == 7 &&
+                 data.id == frameId &&
+                 data.projectId == projectId &&
+                 data.frameIndex is number &&
+                 data.timestamp is number &&
+                 data.dataUrl is string && data.dataUrl.size() <= 1048576 && // 1MB limit for base64
+                 data.ownerId == request.auth.uid &&
+                 data.createdAt == request.time;
+        }
+
+        allow get: if isOwner(existing());
+        allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+        
+        allow create: if isSignedIn() && 
+                         isValidId(projectId) && 
+                         isValidId(frameId) && 
+                         isValidFrame(incoming()) &&
+                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid;
+        
+        allow delete: if isOwner(existing());
+      }
+    }
+  }
+}

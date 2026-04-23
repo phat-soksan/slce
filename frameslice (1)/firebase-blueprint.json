@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A video slicing project containing metadata and references to frames.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" },
+        "videoName": { "type": "string" },
+        "videoSize": { "type": "number" },
+        "frameCount": { "type": "number" }
+      },
+      "required": ["id", "name", "createdAt", "ownerId"]
+    },
+    "Frame": {
+      "title": "Frame",
+      "description": "An individual captured frame artifact.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "frameIndex": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "dataUrl": { "type": "string", "description": "Base64 encoded image data (optimized)" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["id", "projectId", "frameIndex", "timestamp", "dataUrl", "createdAt", "ownerId"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Stores video slicing projects."
+    },
+    "/projects/{projectId}/frames/{frameId}": {
+      "schema": "Frame",
+      "description": "Stores frames captured within a specific project."
+    }
+  }
+}
