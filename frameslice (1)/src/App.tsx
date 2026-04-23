@@ -99,7 +99,10 @@ export default function App() {
     setCapturedFrames(frames);
     setActiveTab('history');
   };
-  const [config, setConfig] = useState({
+  const [config, setConfig] = useState<{
+    imagesPerBlock: number | '';
+    frameBlockSize: number | '';
+  }>({
     imagesPerBlock: 1,
     frameBlockSize: 30,
   });
@@ -136,10 +139,12 @@ export default function App() {
   const calculateFramesToCapture = (duration: number, videoFps: number) => {
     const totalFrames = Math.floor(duration * videoFps);
     const framesToCapture: number[] = [];
+    const frameBlockSize = Number(config.frameBlockSize) || 1;
+    const imagesPerBlock = Number(config.imagesPerBlock) || 1;
     
-    for (let blockStart = 0; blockStart < totalFrames; blockStart += config.frameBlockSize) {
-      for (let i = 0; i < config.imagesPerBlock; i++) {
-        const offset = Math.floor((i / config.imagesPerBlock) * config.frameBlockSize);
+    for (let blockStart = 0; blockStart < totalFrames; blockStart += frameBlockSize) {
+      for (let i = 0; i < imagesPerBlock; i++) {
+        const offset = Math.floor((i / imagesPerBlock) * frameBlockSize);
         const targetFrame = blockStart + offset;
         if (targetFrame < totalFrames) {
           framesToCapture.push(targetFrame);
@@ -346,7 +351,10 @@ export default function App() {
                     type="number" 
                     min="1"
                     value={config.imagesPerBlock}
-                    onChange={(e) => setConfig(prev => ({ ...prev, imagesPerBlock: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setConfig(prev => ({ ...prev, imagesPerBlock: val === '' ? '' : Math.max(1, parseInt(val) || 1) }));
+                    }}
                     className="bg-transparent border-b border-zinc-700 focus:border-amber-200 outline-none w-full py-1 text-xl font-serif text-amber-200"
                   />
                   <span className="text-[10px] text-zinc-600 uppercase italic">shots</span>
@@ -360,7 +368,10 @@ export default function App() {
                     type="number" 
                     min="1"
                     value={config.frameBlockSize}
-                    onChange={(e) => setConfig(prev => ({ ...prev, frameBlockSize: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setConfig(prev => ({ ...prev, frameBlockSize: val === '' ? '' : Math.max(1, parseInt(val) || 1) }));
+                    }}
                     className="bg-transparent border-b border-zinc-700 focus:border-amber-200 outline-none w-full py-1 text-xl font-serif text-amber-200"
                   />
                   <span className="text-[10px] text-zinc-600 uppercase italic">frames</span>
